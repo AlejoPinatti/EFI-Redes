@@ -10,6 +10,7 @@ import base64
 import threading
 import time
 
+
 # --- Variables Globales ---
 control_state = {
     "torch_on": False,
@@ -32,18 +33,22 @@ socketio = SocketIO(app, async_mode='eventlet')
 def index():
     return render_template('index.html')
 
+
 @app.route('/phone')
 def phone_client():
     return render_template('phone.html')
+
 
 # --- Eventos de WebSocket ---
 @socketio.on('connect')
 def handle_connect():
     print('Cliente conectado')
 
+
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Cliente desconectado')
+
 
 @socketio.on('send_frame')
 def handle_frame(data_url):
@@ -55,11 +60,10 @@ def handle_frame(data_url):
     # Retransmite a todos (broadcast=True) menos al que lo envió (include_self=False)
     emit('new_frame', data_url, broadcast=True, include_self=False)
     
-    # ================== CAMBIO AQUÍ ==================
     # Enviar el "ack" (acuse de recibo) al cliente.
     # Esto le da "luz verde" para enviar el siguiente frame.
     return True
-    # ================ FIN DEL CAMBIO ================
+
 
 # --- Rutas de Control HTTP ---
 @app.route('/control/command', methods=['POST'])
@@ -75,6 +79,7 @@ def control_command():
             control_state['cycle_camera_request'] += 1
     return "Comando recibido", 200
 
+
 @app.route('/device/info', methods=['POST'])
 def device_info():
     global control_state, control_lock
@@ -83,11 +88,13 @@ def device_info():
         control_state['device_info'] = info
     return "Info OK", 200
 
+
 @app.route('/control/poll', methods=['GET'])
 def control_poll():
     global control_state, control_lock
     with control_lock:
         return control_state 
+
 
 # --- Ejecución del Servidor ---
 if __name__ == '__main__':
