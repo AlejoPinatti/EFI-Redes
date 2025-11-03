@@ -5,8 +5,10 @@
 {% block content %}
     <h1>Cliente de Cámara</h1>
     
+    <!-- Corregido: sin width/height en el tag <video> -->
     <video id="video" autoplay playsinline muted class="video-wrapper"></video>
     
+    <!-- El canvas MANTIENE su tamaño, esto es lo que enviamos -->
     <canvas id="canvas" width="480" height="360" style="display: none;"></canvas>
     
     <div id="status" class="status-badge" style="position: relative; width: 100%; margin: 1rem 0; background-color: #555; text-align: center;">
@@ -30,7 +32,7 @@
 
 {% block scripts %}
     <script>
-        // --- (Constantes ... sin cambios) ---
+        // --- (Constantes) ---
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const context = canvas.getContext('2d');
@@ -49,11 +51,13 @@
         let pollIntervalId = null;
         let infoUpdateIntervalId = null; 
         let lastCycleRequest = 0; 
-        let hasTorchCapability = false; 
+        let hasTorchCapability = false;
+        
+        // ¡Ya no necesitamos frameIntervalId!
 
         const socket = io();
 
-        // --- (getCameras ... sin cambios) ---
+        // --- (getCameras) ---
         async function getCameras() {
             try {
                 await navigator.mediaDevices.getUserMedia({ video: true });
@@ -79,30 +83,33 @@
         }
         window.addEventListener('load', getCameras);
         
-        // --- (Botones de Control ... sin cambios) ---
+        // --- (Botones de Control - con cooldown de linterna) ---
         toggleBtn.onclick = function() {
             if (isStreaming) { stopStream(); } else { startStream(); }
         };
+
         torchBtn.onclick = function() {
+            torchBtn.disabled = true;
             torchOn = !torchOn;
             applyTorch();
             sendCommand('torch', torchOn ? 'on' : 'off');
+            setTimeout(() => {
+                if (isStreaming && hasTorchCapability) {
+                    torchBtn.disabled = false;
+                }
+            }, 1500); // 1.5 segundos
         }
+
         cycleCamBtn.onclick = function() {
             cycleCamera(); 
         }
         
-        // --- (startStream - ¡CORREGIDO!) ---
+        // --- (startStream) ---
         function startStream() {
-            
-            // ================== CAMBIO AQUÍ ==================
-            // 2. JS: Sin NINGUNA restricción de width o height
             const constraints = { 
                 video: { deviceId: { exact: cameraSelect.value } }, 
                 audio: false 
             };
-            // ================ FIN DEL CAMBIO ================
-
             status.textContent = "Iniciando cámara...";
             
             navigator.mediaDevices.getUserMedia(constraints)
@@ -133,7 +140,9 @@
                         isStreaming = true; 
                         cameraSelect.disabled = true;
                         
-                        requestAnimationFrame(sendFrameLoop); 
+                        // Iniciar el bucle de envío con "ack"
+                        requestAnimationFrame(sendFrameLoop);
+                        
                         pollIntervalId = setInterval(pollServer, 1000);
                         
                         try {
@@ -159,45 +168,55 @@
                 });
         }
 
-        // --- (stopStream ... sin cambios) ---
+        // --- (stopStream) ---
         function stopStream() {
             if (!isStreaming) return; 
             isStreaming = false;
+            
             if (streamInstance) {
                 streamInstance.getTracks().forEach(track => track.stop());
             }
             video.srcObject = null;
             video.onplaying = null;
             video.onerror = null;
+
             status.textContent = "Transmisión detenida.";
             status.style.backgroundColor = '#555';
+
             toggleBtnFront.textContent = "Iniciar Transmisión";
             toggleBtn.classList.remove('btn-red');
             toggleBtn.classList.add('btn-green');
+
             videoTrack = null;
             torchBtn.disabled = true; 
             hasTorchCapability = false; 
             cameraSelect.disabled = false;
             cycleCamBtn.disabled = true;
+
             if (pollIntervalId) clearInterval(pollIntervalId);
             if (infoUpdateIntervalId) clearInterval(infoUpdateIntervalId);
+            
             sendDeviceInfo(null); 
             sendCommand('stream', 'off');
         }
 
-        // --- (sendFrameLoop - ¡CORREGIDO!) ---
+        // --- (sendFrameLoop - ¡ACTUALIZADO!) ---
         function sendFrameLoop() {
-            if (!isStreaming) return;
+            if (!isStreaming) return; // Si apretamos 'stop', el bucle se detiene
             
-            // 3. JS: Dibuja la imagen (de cualquier res) en el canvas (480x360)
             context.drawImage(video, 0, 0, 480, 360);
-            
             let dataURL = canvas.toDataURL('image/jpeg', 0.3);
-            socket.emit('send_frame', dataURL);
-            requestAnimationFrame(sendFrameLoop);
+            
+            // 1. Enviamos el frame por el WebSocket
+            // 2. Añadimos un callback (el 'ack')
+            socket.emit('send_frame', dataURL, () => {
+                // 3. Cuando el servidor responde "OK" (ack),
+                //    pedimos el siguiente frame.
+                requestAnimationFrame(sendFrameLoop);
+            });
         }
 
-        // --- (pollServer ... sin cambios) ---
+        // --- (pollServer) ---
         async function pollServer() {
             if (!isStreaming) return;
             try {
@@ -221,12 +240,13 @@
             }
         }
         
-        // --- (applyTorch ... sin cambios) ---
+        // --- (applyTorch) ---
         function applyTorch() {
             if (!videoTrack || !hasTorchCapability) return;
             videoTrack.applyConstraints({
                 advanced: [{ torch: torchOn }]
             }).catch(err => console.log("Error al aplicar linterna: " + err));
+            
             if (torchOn) {
                 torchBtnFront.textContent = 'Apagar Linterna 🔴';
                 torchBtn.classList.remove('btn-yellow');
@@ -238,7 +258,7 @@
             }
         }
 
-        // --- (sendCommand ... sin cambios) ---
+        // --- (sendCommand) ---
         function sendCommand(key, value) {
              fetch('/control/command', {
                 method: 'POST',
@@ -247,18 +267,18 @@
             }).catch(err => console.log(`Error al enviar comando ${key}:`, err));
         }
 
-        // --- (checkTorchSupport ... sin cambios) ---
+        // --- (checkTorchSupport) ---
         function checkTorchSupport() {
             if (videoTrack && videoTrack.getCapabilities().torch) {
-                torchBtn.disabled = false;
                 hasTorchCapability = true;
+                torchBtn.disabled = false;
             } else {
                 torchBtn.disabled = true;
                 hasTorchCapability = false;
             }
         }
         
-        // --- (cycleCamera ... sin cambios) ---
+        // --- (cycleCamera) ---
         function cycleCamera() {
             if (!isStreaming) return; 
             let currentIdx = cameraSelect.selectedIndex;
@@ -268,7 +288,7 @@
             setTimeout(startStream, 100); 
         }
         
-        // --- (sendDeviceInfo ... sin cambios) ---
+        // --- (sendDeviceInfo) ---
         async function sendDeviceInfo(info = "auto") {
             let deviceInfo = null;
             if (info === "auto") {
@@ -278,6 +298,7 @@
                          battery = await navigator.getBattery();
                     }
                 } catch(e) { console.log("No se pudo acceder a la batería."); }
+                
                 deviceInfo = {
                     camera: videoTrack ? videoTrack.label : 'N/A',
                     userAgent: navigator.userAgent,
@@ -294,3 +315,4 @@
         }
     </script>
 {% endblock %}
+

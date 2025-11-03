@@ -8,8 +8,9 @@
 
     <div class="video-wrapper">
         <div id="status" class="status-badge">CONECTANDO...</div>
-        <img id="stream" class="img-fluid" width="640" height="480">
-        </div>
+        <img id="stream" class="img-fluid" width="640" height="480" style="display: none;">
+
+    </div>
     
     <div id="device-info" style="display: none; text-align: left; margin: 1.5rem 0; background-color: rgba(0,0,0,0.2); padding: 1rem; border-radius: 12px;">
         <h5 style="color: #adb5bd; border-bottom: 1px solid #555; padding-bottom: 0.5rem;">Información del Dispositivo</h5>
@@ -63,14 +64,11 @@
         let isTorchOn = false;
         let pollIntervalId = null; 
 
-        // ================== CAMBIO AQUÍ ==================
-        // Conectamos al servidor WebSocket
-        // (Esto funciona gracias al script que añadimos en layout.html)
+        // --- Lógica de WebSocket ---
         const socket = io();
 
-        // Creamos el listener que recibe los frames
         socket.on('new_frame', function(data_url) {
-            // Simplemente actualizamos el 'src' de la imagen
+            // Recibe un frame y lo muestra
             stream.src = data_url;
         });
 
@@ -80,16 +78,15 @@
         socket.on('disconnect', () => {
             console.log('Desconectado del servidor WebSocket');
         });
-        // ================ FIN DEL CAMBIO ================
 
-        // --- (setLiveStatus - sin cambios) ---
-        // La lógica de polling de 'last_frame_time' sigue funcionando
+
         function setLiveStatus(live, device_info) {
             if (live) {
                 status.textContent = 'EN VIVO'; 
                 status.style.backgroundColor = 'hsl(140, 50%, 50%)'; // Verde
                 stopStreamBtn.disabled = false;
                 cycleCamBtn.disabled = false;
+                stream.style.display = 'block'; // Mostrar la imagen
                 
                 if (device_info && device_info.has_torch) {
                     torchBtn.disabled = false;
@@ -104,19 +101,21 @@
                 torchBtn.disabled = true;
                 stopStreamBtn.disabled = true;
                 cycleCamBtn.disabled = true;
+                stream.style.display = 'none'; // Ocultar la imagen
             }
         }
         
-        // --- (reloadBtn.onclick - ¡ACTUALIZADO!) ---
+
         reloadBtn.onclick = function() {
             status.textContent = 'RECONECTANDO...';
-            status.style.backgroundColor = 'hsl(45, 100%, 51%)';
+            status.style.backgroundColor = 'hsl(45, 100%, 51%)'; // Amarillo
             torchBtn.disabled = true;
             stopStreamBtn.disabled = true;
             cycleCamBtn.disabled = true;
+            stream.style.display = 'none'; // Ocultar al reconectar
             
-            // Ya no recargamos el 'src' de la imagen,
-            // solo nos aseguramos de que el sondeo corra.
+
+            
             if (!pollIntervalId) {
                  pollIntervalId = setInterval(pollServer, 1000);
             }
@@ -126,7 +125,7 @@
             socket.connect();
         }
         
-        // --- (Botones de Control - sin cambios) ---
+        // --- (Botones de Control) ---
         fullscreenBtn.onclick = function() { if (stream.requestFullscreen) stream.requestFullscreen(); }
         
         torchBtn.onclick = function() {
@@ -143,8 +142,7 @@
             sendCommand('cycle_camera', 'next');
         }
 
-        // --- (pollServer - sin cambios) ---
-        // Sigue siendo necesario para el "latido", los controles y la info
+        // --- (pollServer) ---
         async function pollServer() {
             try {
                 const response = await fetch('/control/poll');
@@ -172,7 +170,7 @@
             }
         }
 
-        // --- (Funciones de Ayuda - sin cambios) ---
+        // --- (Funciones de Ayuda) ---
         function sendCommand(key, value) {
              fetch('/control/command', {
                 method: 'POST',
@@ -204,6 +202,8 @@
             }
         }
         
+        // Iniciar el sondeo al cargar la página
         pollIntervalId = setInterval(pollServer, 1000);
     </script>
 {% endblock %}
+

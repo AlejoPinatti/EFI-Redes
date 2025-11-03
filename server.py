@@ -1,3 +1,7 @@
+# Forzar eventlet ANTES de cualquier otra importación
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, Response, render_template, request
 from flask_socketio import SocketIO, emit
 import cv2
@@ -7,9 +11,6 @@ import threading
 import time
 
 # --- Variables Globales ---
-# ¡YA NO NECESITAMOS global_frame!
-# El servidor ahora es solo un "pasamanos" (forwarder)
-
 control_state = {
     "torch_on": False,
     "device_info": None,
@@ -21,9 +22,12 @@ control_lock = threading.Lock()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'tu_clave_secreta_aqui!'
-socketio = SocketIO(app)
 
-# --- (Rutas / y /phone sin cambios) ---
+# Decirle a SocketIO que use el motor 'eventlet' para WebSockets reales
+socketio = SocketIO(app, async_mode='eventlet')
+
+
+# --- Rutas de Plantillas ---
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -32,11 +36,7 @@ def index():
 def phone_client():
     return render_template('phone.html')
 
-# --- (Ruta /upload ELIMINADA) ---
-
-# --- (Ruta /stream.mjpeg ELIMINADA) ---
-
-# --- NUEVOS EVENTOS DE WEBSOCKET ---
+# --- Eventos de WebSocket ---
 @socketio.on('connect')
 def handle_connect():
     print('Cliente conectado')
@@ -47,19 +47,21 @@ def handle_disconnect():
 
 @socketio.on('send_frame')
 def handle_frame(data_url):
-    """
-    Recibe un frame de la cámara y lo retransmite
-    a todos los visores conectados.
-    """
-    # 1. Actualizar el "latido" para el estado "EN VIVO"
+    # Recibe un frame y lo retransmite a todos los visores
     with control_lock:
+        # Actualizar el "latido" para el estado "EN VIVO"
         control_state["last_frame_time"] = time.time()
     
-    # 2. Retransmitir el frame a todos (broadcast=True)
-    #    menos al que lo envió (include_self=False)
+    # Retransmite a todos (broadcast=True) menos al que lo envió (include_self=False)
     emit('new_frame', data_url, broadcast=True, include_self=False)
+    
+    # ================== CAMBIO AQUÍ ==================
+    # Enviar el "ack" (acuse de recibo) al cliente.
+    # Esto le da "luz verde" para enviar el siguiente frame.
+    return True
+    # ================ FIN DEL CAMBIO ================
 
-# --- (RUTAS DE CONTROL HTTP - SIN CAMBIOS) ---
+# --- Rutas de Control HTTP ---
 @app.route('/control/command', methods=['POST'])
 def control_command():
     global control_state, control_lock
@@ -87,8 +89,9 @@ def control_poll():
     with control_lock:
         return control_state 
 
-# --- (Ejecución del Servidor - MODIFICADO) ---
+# --- Ejecución del Servidor ---
 if __name__ == '__main__':
-    print("Iniciando servidor WebSocket en http://0.0.0.0:8000")
-    # Usamos socketio.run() en lugar de app.run()
-    socketio.run(app, host='0.0.0.0', port=8000, allow_unsafe_werkzeug=True)
+    print("Iniciando servidor WebSocket (con eventlet) en http://0.0.0.0:8000")
+    # socketio.run() usará 'eventlet' gracias al async_mode
+    socketio.run(app, host='0.0.0.0', port=8000)
+
