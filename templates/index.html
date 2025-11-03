@@ -1,0 +1,209 @@
+{% extends 'layout.html' %}
+{% block title %}Visor de Seguridad{% endblock %}
+{% block nav_visor_active %}btn-blue active{% endblock %}
+
+{% block content %}
+    <h1>Visor de Seguridad</h1>
+    <p>Controlando el dispositivo remotamente.</p>
+
+    <div class="video-wrapper">
+        <div id="status" class="status-badge">CONECTANDO...</div>
+        <img id="stream" class="img-fluid" width="640" height="480">
+        </div>
+    
+    <div id="device-info" style="display: none; text-align: left; margin: 1.5rem 0; background-color: rgba(0,0,0,0.2); padding: 1rem; border-radius: 12px;">
+        <h5 style="color: #adb5bd; border-bottom: 1px solid #555; padding-bottom: 0.5rem;">Información del Dispositivo</h5>
+        <ul style="list-style: none; padding-left: 0; font-size: 0.9rem;">
+            <li id="info-agent" style="font-weight: bold;"></li>
+            <li id="info-camera"></li>
+            <li id="info-battery"></li>
+            <li id="info-network"></li>
+        </ul>
+    </div>
+
+    <div class="controls-grid">
+        <button id="fullscreenBtn" class="pushable btn-gray">
+            <span class="shadow"></span><span class="edge"></span><span class="front">Pantalla Completa ⛶</span>
+        </button>
+        <button id="reloadBtn" class="pushable btn-gray">
+            <span class="shadow"></span><span class="edge"></span><span class="front">Reconectar 🔄</span>
+        </button>
+        <button id="cycleCamBtn" class="pushable grid-full-width btn-blue" disabled>
+             <span class="shadow"></span>
+             <span class="edge"></span>
+             <span class="front">Cambiar Cámara 🔄</span>
+        </button>
+        <button id="torchBtn" class="pushable grid-full-width btn-blue" disabled>
+            <span class="shadow"></span><span class="edge"></span><span class="front">Encender Linterna 🔦</span>
+        </button>
+        <button id="stopStreamBtn" class="pushable grid-full-width btn-red" disabled>
+            <span class="shadow"></span><span class="edge"></span><span class="front">Detener Transmisión 🛑</span>
+        </button>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        // --- (Constantes) ---
+        const stream = document.getElementById('stream');
+        const status = document.getElementById('status');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const reloadBtn = document.getElementById('reloadBtn');
+        const torchBtn = document.getElementById('torchBtn');
+        const torchBtnFront = torchBtn.querySelector('.front');
+        const stopStreamBtn = document.getElementById('stopStreamBtn');
+        const cycleCamBtn = document.getElementById('cycleCamBtn');
+        
+        const deviceInfoDisplay = document.getElementById('device-info');
+        const infoCamera = document.getElementById('info-camera');
+        const infoBattery = document.getElementById('info-battery');
+        const infoNetwork = document.getElementById('info-network');
+        const infoAgent = document.getElementById('info-agent'); 
+        
+        let isTorchOn = false;
+        let pollIntervalId = null; 
+
+        // ================== CAMBIO AQUÍ ==================
+        // Conectamos al servidor WebSocket
+        // (Esto funciona gracias al script que añadimos en layout.html)
+        const socket = io();
+
+        // Creamos el listener que recibe los frames
+        socket.on('new_frame', function(data_url) {
+            // Simplemente actualizamos el 'src' de la imagen
+            stream.src = data_url;
+        });
+
+        socket.on('connect', () => {
+            console.log('Conectado al servidor WebSocket');
+        });
+        socket.on('disconnect', () => {
+            console.log('Desconectado del servidor WebSocket');
+        });
+        // ================ FIN DEL CAMBIO ================
+
+        // --- (setLiveStatus - sin cambios) ---
+        // La lógica de polling de 'last_frame_time' sigue funcionando
+        function setLiveStatus(live, device_info) {
+            if (live) {
+                status.textContent = 'EN VIVO'; 
+                status.style.backgroundColor = 'hsl(140, 50%, 50%)'; // Verde
+                stopStreamBtn.disabled = false;
+                cycleCamBtn.disabled = false;
+                
+                if (device_info && device_info.has_torch) {
+                    torchBtn.disabled = false;
+                } else {
+                    torchBtn.disabled = true;
+                }
+                
+            } else {
+                status.textContent = 'DESCONECTADO'; 
+                status.style.backgroundColor = 'hsl(0, 70%, 55%)'; // Rojo
+                updateDeviceInfo(null); 
+                torchBtn.disabled = true;
+                stopStreamBtn.disabled = true;
+                cycleCamBtn.disabled = true;
+            }
+        }
+        
+        // --- (reloadBtn.onclick - ¡ACTUALIZADO!) ---
+        reloadBtn.onclick = function() {
+            status.textContent = 'RECONECTANDO...';
+            status.style.backgroundColor = 'hsl(45, 100%, 51%)';
+            torchBtn.disabled = true;
+            stopStreamBtn.disabled = true;
+            cycleCamBtn.disabled = true;
+            
+            // Ya no recargamos el 'src' de la imagen,
+            // solo nos aseguramos de que el sondeo corra.
+            if (!pollIntervalId) {
+                 pollIntervalId = setInterval(pollServer, 1000);
+            }
+            
+            // Forzar reconexión del socket
+            socket.disconnect();
+            socket.connect();
+        }
+        
+        // --- (Botones de Control - sin cambios) ---
+        fullscreenBtn.onclick = function() { if (stream.requestFullscreen) stream.requestFullscreen(); }
+        
+        torchBtn.onclick = function() {
+            isTorchOn = !isTorchOn;
+            updateTorchButton();
+            sendCommand('torch', isTorchOn ? 'on' : 'off');
+        }
+
+        stopStreamBtn.onclick = function() {
+            sendCommand('stream', 'off');
+        }
+        
+        cycleCamBtn.onclick = function() {
+            sendCommand('cycle_camera', 'next');
+        }
+
+        // --- (pollServer - sin cambios) ---
+        // Sigue siendo necesario para el "latido", los controles y la info
+        async function pollServer() {
+            try {
+                const response = await fetch('/control/poll');
+                const command = await response.json(); 
+
+                if (command.torch_on !== isTorchOn) {
+                    isTorchOn = command.torch_on;
+                    updateTorchButton();
+                }
+                
+                updateDeviceInfo(command.device_info);
+                
+                const now = Date.now() / 1000; 
+                const lastFrame = command.last_frame_time || 0;
+                
+                if ((now - lastFrame) < 5) { 
+                    setLiveStatus(true, command.device_info);
+                } else {
+                    setLiveStatus(false, null);
+                }
+
+            } catch (e) {
+                console.log("Error de polling:", e);
+                setLiveStatus(false, null);
+            }
+        }
+
+        // --- (Funciones de Ayuda - sin cambios) ---
+        function sendCommand(key, value) {
+             fetch('/control/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [key]: value })
+            }).catch(err => console.log(`Error al enviar comando ${key}:`, err));
+        }
+        function updateTorchButton() {
+            if (isTorchOn) {
+                torchBtnFront.textContent = 'Apagar Linterna 🔴';
+                torchBtn.classList.remove('btn-blue');
+                torchBtn.classList.add('btn-red');
+            } else {
+                torchBtnFront.textContent = 'Encender Linterna 🔦';
+                torchBtn.classList.remove('btn-red');
+                torchBtn.classList.add('btn-blue');
+            }
+        }
+        function updateDeviceInfo(info) {
+            if (info) {
+                let agent = info.userAgent.split(')')[0] + ')'; 
+                infoAgent.textContent = `Dispositivo: ${agent}`;
+                infoCamera.textContent = `Cámara: ${info.camera}`;
+                infoBattery.textContent = `Batería: ${info.battery}`;
+                infoNetwork.textContent = `Red: ${info.network}`;
+                deviceInfoDisplay.style.display = 'block'; 
+            } else {
+                deviceInfoDisplay.style.display = 'none'; 
+            }
+        }
+        
+        pollIntervalId = setInterval(pollServer, 1000);
+    </script>
+{% endblock %}

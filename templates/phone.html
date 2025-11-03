@@ -1,0 +1,296 @@
+{% extends 'layout.html' %}
+{% block title %}Cámara Cliente{% endblock %}
+{% block nav_camera_active %}btn-blue active{% endblock %}
+
+{% block content %}
+    <h1>Cliente de Cámara</h1>
+    
+    <video id="video" autoplay playsinline muted class="video-wrapper"></video>
+    
+    <canvas id="canvas" width="480" height="360" style="display: none;"></canvas>
+    
+    <div id="status" class="status-badge" style="position: relative; width: 100%; margin: 1rem 0; background-color: #555; text-align: center;">
+        Presiona "Iniciar" para transmitir.
+    </div>
+    
+    <div class="controls d-grid gap-2" style="display: grid; gap: 1rem;">
+        <label for="cameraSelect" style="text-align: left; color: #adb5bd;">Seleccionar Cámara:</label>
+        <select id="cameraSelect" class="mb-2"></select>
+        <button id="cycleCamBtn" class="pushable btn-blue" disabled>
+            <span class="shadow"></span><span class="edge"></span><span class="front">Girar Cámara 🔄</span>
+        </button>
+        <button id="torchBtn" class="pushable btn-yellow" disabled>
+            <span class="shadow"></span><span class="edge"></span><span class="front">Linterna 🔦</span>
+        </button>
+        <button id="toggleStreamBtn" class="pushable btn-green">
+            <span class="shadow"></span><span class="edge"></span><span class="front">Iniciar Transmisión</span>
+        </button>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        // --- (Constantes ... sin cambios) ---
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        const status = document.getElementById('status');
+        const toggleBtn = document.getElementById('toggleStreamBtn');
+        const toggleBtnFront = toggleBtn.querySelector('.front');
+        const torchBtn = document.getElementById('torchBtn');
+        const torchBtnFront = torchBtn.querySelector('.front');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const cycleCamBtn = document.getElementById('cycleCamBtn');
+        
+        let isStreaming = false;
+        let streamInstance = null;
+        let videoTrack = null;
+        let torchOn = false;
+        let pollIntervalId = null;
+        let infoUpdateIntervalId = null; 
+        let lastCycleRequest = 0; 
+        let hasTorchCapability = false; 
+
+        const socket = io();
+
+        // --- (getCameras ... sin cambios) ---
+        async function getCameras() {
+            try {
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                if (videoDevices.length === 0) { 
+                    status.textContent = "Error: No se encontraron cámaras.";
+                    status.style.backgroundColor = 'hsl(0, 70%, 55%)';
+                    return; 
+                }
+                cameraSelect.innerHTML = '';
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Cámara ${index + 1}`;
+                    cameraSelect.appendChild(option);
+                });
+            } catch (err) {
+                console.log("Ocurrió un error: " + err);
+                status.textContent = "Error al acceder a la cámara.";
+                status.style.backgroundColor = 'hsl(0, 70%, 55%)';
+            }
+        }
+        window.addEventListener('load', getCameras);
+        
+        // --- (Botones de Control ... sin cambios) ---
+        toggleBtn.onclick = function() {
+            if (isStreaming) { stopStream(); } else { startStream(); }
+        };
+        torchBtn.onclick = function() {
+            torchOn = !torchOn;
+            applyTorch();
+            sendCommand('torch', torchOn ? 'on' : 'off');
+        }
+        cycleCamBtn.onclick = function() {
+            cycleCamera(); 
+        }
+        
+        // --- (startStream - ¡CORREGIDO!) ---
+        function startStream() {
+            
+            // ================== CAMBIO AQUÍ ==================
+            // 2. JS: Sin NINGUNA restricción de width o height
+            const constraints = { 
+                video: { deviceId: { exact: cameraSelect.value } }, 
+                audio: false 
+            };
+            // ================ FIN DEL CAMBIO ================
+
+            status.textContent = "Iniciando cámara...";
+            
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(function(stream) {
+                    streamInstance = stream;
+                    video.srcObject = stream;
+                    video.play(); 
+                    
+                    video.onplaying = () => {
+                        console.log("Video AHORA SÍ está reproduciendo. Iniciando stream.");
+                        
+                        if (socket.disconnected) { socket.connect(); }
+                        
+                        videoTrack = stream.getVideoTracks()[0];
+                        checkTorchSupport(); 
+
+                        if (cameraSelect.options.length > 1) {
+                            cycleCamBtn.disabled = false;
+                        }
+
+                        status.textContent = "¡Transmitiendo! 🔴";
+                        status.style.backgroundColor = 'hsl(140, 50%, 50%)';
+                        
+                        toggleBtnFront.textContent = "Detener Transmisión";
+                        toggleBtn.classList.remove('btn-green');
+                        toggleBtn.classList.add('btn-red');
+
+                        isStreaming = true; 
+                        cameraSelect.disabled = true;
+                        
+                        requestAnimationFrame(sendFrameLoop); 
+                        pollIntervalId = setInterval(pollServer, 1000);
+                        
+                        try {
+                            sendDeviceInfo("auto"); 
+                            infoUpdateIntervalId = setInterval(sendDeviceInfo, 5000); 
+                        } catch(e) {
+                            console.error("Error iniciando el envío de info:", e);
+                        }
+                        
+                        sendCommand('stream', 'on');
+                    };
+
+                    video.onerror = (e) => {
+                         status.textContent = "Error al reproducir el video local.";
+                         status.style.backgroundColor = 'hsl(0, 70%, 55%)';
+                         console.log("Error de video:", e);
+                    };
+                })
+                .catch(function(err) {
+                    status.textContent = "Error al iniciar cámara seleccionada.";
+                    status.style.backgroundColor = 'hsl(0, 70%, 55%)';
+                    console.log(err);
+                });
+        }
+
+        // --- (stopStream ... sin cambios) ---
+        function stopStream() {
+            if (!isStreaming) return; 
+            isStreaming = false;
+            if (streamInstance) {
+                streamInstance.getTracks().forEach(track => track.stop());
+            }
+            video.srcObject = null;
+            video.onplaying = null;
+            video.onerror = null;
+            status.textContent = "Transmisión detenida.";
+            status.style.backgroundColor = '#555';
+            toggleBtnFront.textContent = "Iniciar Transmisión";
+            toggleBtn.classList.remove('btn-red');
+            toggleBtn.classList.add('btn-green');
+            videoTrack = null;
+            torchBtn.disabled = true; 
+            hasTorchCapability = false; 
+            cameraSelect.disabled = false;
+            cycleCamBtn.disabled = true;
+            if (pollIntervalId) clearInterval(pollIntervalId);
+            if (infoUpdateIntervalId) clearInterval(infoUpdateIntervalId);
+            sendDeviceInfo(null); 
+            sendCommand('stream', 'off');
+        }
+
+        // --- (sendFrameLoop - ¡CORREGIDO!) ---
+        function sendFrameLoop() {
+            if (!isStreaming) return;
+            
+            // 3. JS: Dibuja la imagen (de cualquier res) en el canvas (480x360)
+            context.drawImage(video, 0, 0, 480, 360);
+            
+            let dataURL = canvas.toDataURL('image/jpeg', 0.3);
+            socket.emit('send_frame', dataURL);
+            requestAnimationFrame(sendFrameLoop);
+        }
+
+        // --- (pollServer ... sin cambios) ---
+        async function pollServer() {
+            if (!isStreaming) return;
+            try {
+                const response = await fetch('/control/poll');
+                const command = await response.json(); 
+                if (command.torch_on !== torchOn) {
+                    torchOn = command.torch_on;
+                    applyTorch();
+                }
+                if (command.stream_on === false) {
+                    console.log("Comando de detener stream recibido del server.");
+                    stopStream();
+                }
+                if (command.cycle_camera_request > lastCycleRequest) {
+                    console.log("Comando de girar cámara recibido del server.");
+                    lastCycleRequest = command.cycle_camera_request;
+                    cycleCamera();
+                }
+            } catch (e) {
+                console.log("Error de polling:", e);
+            }
+        }
+        
+        // --- (applyTorch ... sin cambios) ---
+        function applyTorch() {
+            if (!videoTrack || !hasTorchCapability) return;
+            videoTrack.applyConstraints({
+                advanced: [{ torch: torchOn }]
+            }).catch(err => console.log("Error al aplicar linterna: " + err));
+            if (torchOn) {
+                torchBtnFront.textContent = 'Apagar Linterna 🔴';
+                torchBtn.classList.remove('btn-yellow');
+                torchBtn.classList.add('btn-red');
+            } else {
+                torchBtnFront.textContent = 'Linterna 🔦';
+                torchBtn.classList.remove('btn-red');
+                torchBtn.classList.add('btn-yellow');
+            }
+        }
+
+        // --- (sendCommand ... sin cambios) ---
+        function sendCommand(key, value) {
+             fetch('/control/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [key]: value })
+            }).catch(err => console.log(`Error al enviar comando ${key}:`, err));
+        }
+
+        // --- (checkTorchSupport ... sin cambios) ---
+        function checkTorchSupport() {
+            if (videoTrack && videoTrack.getCapabilities().torch) {
+                torchBtn.disabled = false;
+                hasTorchCapability = true;
+            } else {
+                torchBtn.disabled = true;
+                hasTorchCapability = false;
+            }
+        }
+        
+        // --- (cycleCamera ... sin cambios) ---
+        function cycleCamera() {
+            if (!isStreaming) return; 
+            let currentIdx = cameraSelect.selectedIndex;
+            let nextIdx = (currentIdx + 1) % cameraSelect.options.length;
+            cameraSelect.selectedIndex = nextIdx;
+            stopStream();
+            setTimeout(startStream, 100); 
+        }
+        
+        // --- (sendDeviceInfo ... sin cambios) ---
+        async function sendDeviceInfo(info = "auto") {
+            let deviceInfo = null;
+            if (info === "auto") {
+                let battery = { level: -1, charging: false };
+                try {
+                    if (navigator.getBattery) {
+                         battery = await navigator.getBattery();
+                    }
+                } catch(e) { console.log("No se pudo acceder a la batería."); }
+                deviceInfo = {
+                    camera: videoTrack ? videoTrack.label : 'N/A',
+                    userAgent: navigator.userAgent,
+                    battery: `${Math.round(battery.level * 100)}% ${battery.charging ? '(Cargando)' : ''}`,
+                    network: navigator.connection ? navigator.connection.effectiveType : 'unknown',
+                    has_torch: hasTorchCapability 
+                };
+            }
+            fetch('/device/info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(deviceInfo)
+            }).catch(err => console.log('Error al enviar info del dispositivo:', err));
+        }
+    </script>
+{% endblock %}

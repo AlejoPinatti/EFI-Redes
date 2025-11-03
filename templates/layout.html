@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <title>{% block title %}Proyecto Redes{% endblock %}</title>
+
+    <style>
+        /* --- 1. Estilos Globales y Fondo (Sin cambios) --- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-image: url('https://www.toptal.com/designers/subtlepatterns/uploads/light-veneer.png');
+            background-repeat: repeat;
+            color: #f8f9fa;
+        }
+
+        /* --- 2. Header Centrado (Sin cambios) --- */
+        .main-header {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            background-color: rgba(33, 37, 41, 0.9);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            margin-bottom: 2rem;
+            border-radius: 0 0 1.5rem 1.5rem;
+        }
+        .main-header a { text-decoration: none; }
+
+        /* --- 3. Contenedor Principal (Sin cambios) --- */
+        .content-wrapper {
+            background-color: rgba(33, 37, 41, 0.9);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            margin: 0 auto 2rem auto;
+            max-width: 800px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.7);
+            text-align: center;
+        }
+        h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+        p { font-size: 1.1rem; color: #adb5bd; margin-bottom: 1.5rem; }
+
+        /* --- 4. CSS Botones Pushable (Base) --- */
+        .pushable {
+            position: relative;
+            background: transparent;
+            padding: 0;
+            border: none;
+            cursor: pointer;
+            outline-offset: 4px;
+            transition: filter 250ms;
+            -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+            width: 100%;
+        }
+        .shadow {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+            background: hsl(0, 0%, 0%, 0.15);
+            border-radius: 12px;
+            filter: blur(2px);
+            will-change: transform;
+            transform: translateY(2px);
+            transition: transform 600ms cubic-bezier(0.3, 0.7, 0.4, 1);
+        }
+        /* Borde base GRIS */
+        .edge {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+            border-radius: 12px;
+            background: linear-gradient(
+                to right,
+                hsl(220, 10%, 40%) 0%,
+                hsl(220, 10%, 50%) 8%,
+                hsl(220, 10%, 40%) 92%,
+                hsl(220, 10%, 30%) 100%
+            );
+        }
+        /* Frente base GRIS */
+        .front {
+            display: block;
+            position: relative;
+            border-radius: 12px;
+            background: hsl(220, 10%, 60%);
+            padding: 16px 32px;
+            color: white;
+            font-weight: 600;
+            letter-spacing: 1.5px;
+            font-size: 1rem;
+            transform: translateY(-4px);
+            transition: transform 600ms cubic-bezier(0.3, 0.7, 0.4, 1);
+        }
+        
+        .pushable:hover { filter: brightness(110%); }
+        .pushable:hover .front {
+            transform: translateY(-6px);
+            transition: transform 250ms cubic-bezier(0.3, 0.7, 0.4, 1.5);
+        }
+        .pushable:active .front {
+            transform: translateY(-2px);
+            transition: transform 34ms;
+        }
+        .pushable:hover .shadow {
+            transform: translateY(4px);
+            transition: transform 250ms cubic-bezier(0.3, 0.7, 0.4, 1.5);
+        }
+        .pushable:active .shadow {
+            transform: translateY(1px);
+            transition: transform 34ms;
+        }
+        .pushable:disabled {
+            filter: grayscale(80%);
+            cursor: not-allowed;
+        }
+
+        /* --- 5. CLASE 'ACTIVE' (Botón Presionado) --- */
+        .pushable.active .front {
+            transform: translateY(-2px);
+        }
+        .pushable.active .shadow {
+            transform: translateY(1px);
+        }
+        .pushable.active:hover .front {
+            transform: translateY(-2px);
+        }
+        .pushable.active:hover .shadow {
+            transform: translateY(1px);
+        }
+
+        /* --- 6. Variantes de Color para Botones --- */
+        /* Azul */
+        .btn-blue .front { background: hsl(248, 53%, 58%); }
+        .btn-blue .edge {
+            background: linear-gradient(
+                to right,
+                hsl(248, 39%, 39%) 0%,
+                hsl(248, 39%, 49%) 8%,
+                hsl(248, 39%, 39%) 92%,
+                hsl(248, 39%, 29%) 100%
+            );
+        }
+        /* Verde */
+        .btn-green .front { background: hsl(140, 50%, 50%); }
+        .btn-green .edge {
+            background: linear-gradient( to right, hsl(140, 60%, 30%) 0%, hsl(140, 60%, 40%) 8%, hsl(140, 60%, 30%) 92%, hsl(140, 60%, 20%) 100% );
+        }
+        /* Rojo */
+        .btn-red .front { background: hsl(0, 70%, 55%); }
+        .btn-red .edge {
+            background: linear-gradient( to right, hsl(0, 70%, 35%) 0%, hsl(0, 70%, 45%) 8%, hsl(0, 70%, 35%) 92%, hsl(0, 70%, 25%) 100% );
+        }
+        /* Amarillo */
+        .btn-yellow .front { background: hsl(45, 100%, 51%); color: #333; }
+        .btn-yellow .edge {
+            background: linear-gradient( to right, hsl(45, 70%, 35%) 0%, hsl(45, 70%, 45%) 8%, hsl(45, 70%, 35%) 92%, hsl(45, 70%, 25%) 100% );
+        }
+        /* Gris */
+        .btn-gray .front { background: hsl(220, 10%, 60%); }
+        .btn-gray .edge {
+            background: linear-gradient( to right, hsl(220, 10%, 40%) 0%, hsl(220, 10%, 50%) 8%, hsl(220, 10%, 40%) 92%, hsl(220, 10%, 30%) 100% );
+        }
+
+        /* --- 7. Estilos de Contenido (Video, Select, etc.) --- */
+        .video-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto;
+        }
+        
+        .status-badge {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            padding: 0.5em 1em;
+            border-radius: 50px;
+            font-size: 0.9em;
+            font-weight: 600;
+            color: white;
+            background-color: #f44336; /* Rojo */
+            z-index: 10;
+        }
+        
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        
+        .grid-full-width {
+            grid-column: 1 / -1;
+        }
+        
+        select {
+            display: block;
+            width: 100%;
+            padding: 16px 32px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--color-texto);
+            background-color: #3a3a3a;
+            border: 2px solid #555;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+    
+    <header class="main-header">
+        <a href="/">
+            <button class="pushable {% block nav_visor_active %}{% endblock %}">
+                <span class="shadow"></span>
+                <span class="edge"></span>
+                <span class="front">Visor</span>
+            </button>
+        </a>
+        <a href="/phone">
+            <button class="pushable {% block nav_camera_active %}{% endblock %}">
+                <span class="shadow"></span>
+                <span class="edge"></span>
+                <span class="front">Cámara</span>
+            </button>
+        </a>
+    </header>
+
+    <main class="content-wrapper">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    {% block scripts %}{% endblock %}
+
+</body>
+</html>
