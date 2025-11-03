@@ -1,3 +1,4 @@
+Instalar Dependencias
 ```bash
 pip install flask flask-socketio opencv-python numpy
 ```
